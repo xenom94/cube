@@ -1,0 +1,6 @@
+the further away the wall is, the shorter we render the column of pixels.
+the closer the wall is , the taller we render the column of pixels.
+convert degrees to radiants in the code ;
+turn direction : indexes -1 if left +1 if right 0 nothing should be updated (increase the direction angle)
+same for going back -1 or front +1
+rotation angle intialisition the angle the player facing math.pi/ 2 (90);
