@@ -1,19 +1,11 @@
-/* ************************************************************************** */
-/*                                                                            */
-/*                                                        :::      ::::::::   */
-/*   raycast.c                                          :+:      :+:    :+:   */
-/*                                                    +:+ +:+         +:+     */
-/*   By: iabboudi <iabboudi@student.42.fr>          +#+  +:+       +#+        */
-/*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2025/01/23 19:37:39 by iabboudi          #+#    #+#             */
-/*   Updated: 2025/02/24 20:49:51 by iabboudi         ###   ########.fr       */
-/*                                                                            */
-/* ************************************************************************** */
-
 #include "../cube.h"
+#include <math.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include "mlx.h"
 
 // Example map; make sure map_rows and map_cols are defined in cube.h.
-int map[map_rows][map_cols] = {
+char map[map_rows][map_cols] = {
     {1,1,1,1,1,1,1,1,1,1},
     {1,0,0,0,0,0,0,0,0,1},
     {1,0,0,0,0,0,0,1,0,1},
@@ -49,20 +41,34 @@ void update_player(t_player *player)
     float strafeStep = player->strafeDirection * player->moveSpeed;
     newX += -sin(player->rotationAngle) * strafeStep;
     newY += cos(player->rotationAngle) * strafeStep;
-    
-    double lookaheadDistance = 5.0;
-    if (player->walkDirection != 0 && is_facing_wall(player, lookaheadDistance))
-        return;
-        
+
     int mapX = newX / TILE_SIZE;
     int mapY = newY / TILE_SIZE;
     // Collision check: ensure new position is not a wall.
-    if (mapX >= 0 && mapX < map_cols && mapY >= 0 && mapY < map_rows && map[mapY][mapX] == 0)
+    if (!has_wall_at(player, newX + 2, newY + 2)
+        && !has_wall_at(player, newX -2 ,newY -2)
+        && !has_wall_at(player, newX -2 , newY +2)
+        && !has_wall_at(player, newX + 2, newY-2))
     {
         player->x = newX;
         player->y = newY;
     }
 }
+
+int has_wall_at(t_player *player, float x, float y)
+{
+    int x_index, y_index;
+
+    if (x < 0 || x >= map_cols * TILE_SIZE || y < 0 || y >= map_rows * TILE_SIZE)
+        return (1);
+
+    x_index = (int)(x / TILE_SIZE);
+    y_index = (int)(y / TILE_SIZE);
+
+    // Fix the incorrect strncmp usage
+    return (map[y_index][x_index] == 1);
+}
+
 
 void draw_cell(t_player *player, int x, int y, int tile_size, int color)
 {
@@ -89,12 +95,18 @@ void draw_filled_circle(void *mlx, void *win, t_player *player, int color)
         while (y <= player->radius)
         {
             if (x * x + y * y <= player->radius * player->radius)
-                my_mlx_pixel_put(player, player->x + x, player->y + y, color);
+            {
+                int px = player->x + x;
+                int py = player->y + y;
+                if (px >= 0 && px < WIN_WIDTH && py >= 0 && py < WIN_HEIGHT)
+                    my_mlx_pixel_put(player, px, py, color);
+            }
             y++;
         }
         x++;
     }
 }
+
 
 void draw_line(t_player *player, int x1, int y1, int x2, int y2, int color)
 {
@@ -130,7 +142,16 @@ void draw_line(t_player *player, int x1, int y1, int x2, int y2, int color)
     } 
 }
 
+void draw_player_direction(t_player *player, int length, int color)
+{
+    player->dx = cos(player->rotationAngle);
+    player->dy = sin(player->rotationAngle);
 
+    int x2 = player->x + player->dx * length;
+    int y2 = player->y + player->dy * length;
+    
+    draw_line(player, player->x, player->y, x2, y2, color);
+}
 
 // --- NEW FUNCTION: Casting a Single Ray ---
 // This function casts a ray at a given angle, stopping if a wall is hit.
@@ -145,10 +166,8 @@ void cast_single_ray(t_player *player, double ray_angle, int max_length, int col
     double rayY = player->y;
     
     // Step size for the ray. Adjust for accuracy.
-    double step = 0.1;
+    double step = 0.5;
     int distance = 0;
-    double lookaheadDistance = 5.0;
-
     
     while (distance < max_length)
     {
@@ -159,14 +178,16 @@ void cast_single_ray(t_player *player, double ray_angle, int max_length, int col
         // If the ray goes out of bounds, break.
         int mapX = rayX / TILE_SIZE;
         int mapY = rayY / TILE_SIZE;
-        if (mapX < 0 || mapX >= map_cols || mapY < 0 || mapY >= map_rows )
+        if (mapX < 0 || mapX >= map_cols || mapY < 0 || mapY >= map_rows)
             break;
         
-
         // If a wall is hit, break.
-        if (map[mapY][mapX] != 0 )
+        if (has_wall_at(player, rayX, rayY))
+        {
+            rayX -= dx * step * 2;
+            rayY -= dy * step * 2;
             break;
-        
+        }
         // Draw the ray pixel (for visualization).
         my_mlx_pixel_put(player, (int)rayX, (int)rayY, color);
     }
@@ -175,41 +196,22 @@ void cast_single_ray(t_player *player, double ray_angle, int max_length, int col
 // --- NEW FUNCTION: Drawing Multiple Rays ---
 void draw_rays(t_player *player, int max_length, int color)
 {
-    int i;
     // Define field-of-view (FOV) in radians (e.g., 60°).
     double fov = 1.047; // ~60° in radians
     // Number of rays to cast.
-    int num_rays = WIN_WIDTH; // For example, one ray per screen column.
+    int num_rays = WIN_WIDTH / 5; // For example, one ray per screen column.
     
     // Calculate the starting angle (leftmost ray).
     double start_angle = player->rotationAngle - (fov / 2);
     // Angular step between consecutive rays.
     double angle_step = fov / num_rays;
-    i = 0;
-    while( i < num_rays)
+    
+    for (int i = 0; i < num_rays; i++)
     {
         double ray_angle = start_angle + i * angle_step;
         ray_angle = norm_angle(ray_angle);
         cast_single_ray(player, ray_angle, max_length, color);
-        i++;
     }
-}
-
-bool is_facing_wall(t_player *player, double lookaheadDistance)
-{
-    double lookaheadX = player->x + cos(player->rotationAngle) + lookaheadDistance;
-    double lookaheadY = player->y + sin(player->rotationAngle) * lookaheadDistance;
-    
-    int mapX = lookaheadX / TILE_SIZE;
-    int mapY = lookaheadY / TILE_SIZE;
-    if (mapX < 0 || mapX >= map_cols || mapY < 0 || mapY >= map_rows)
-            return false;
-        
-        // If a wall is hit, break.
-        if (map[mapY][mapX] != 0)
-            return true;
-    
-    return false;
 }
 
 void render(t_player *player)
@@ -218,35 +220,29 @@ void render(t_player *player)
     int total_pixels = WIN_WIDTH * WIN_HEIGHT;
     
     // Clear the image buffer.
-    pix = 0;
-    while (pix < total_pixels)
-    {
+    for (pix = 0; pix < total_pixels; pix++)
         ((unsigned int*)player->img_addr)[pix] = 0x000000;
-    pix++;
-    }
     
     // Draw the map.
-    i = 0;
-    while ( i < map_rows)
+    for (i = 0; i < map_rows; i++)
     {
-        j = 0;
-        while(j < map_cols)
+        for (j = 0; j < map_cols; j++)
         {
             if (map[i][j] == 1)
                 color = 0x000055;
             else 
                 color = 0xFFFFFF;
             draw_cell(player, j * TILE_SIZE, i * TILE_SIZE, TILE_SIZE, color);
-            j++;
         }
-        i++;
     }
     
     // Draw the player (as a filled circle).
     draw_filled_circle(player->mlx, player->win, player, 0xFF0000);
-    // Draw the player's facing direction line.    
+    // Draw the player's facing direction line.
+    draw_player_direction(player, 50, 0xFF0000);
+    
     // Draw multiple rays from the player's position.
-    draw_rays(player, 100, 0xFFFF00);  // Rays drawn in yellow with a max length of 300.
+    draw_rays(player, 300, 0xFFFF00);  // Rays drawn in yellow with a max length of 300.
     
     // Blit the off-screen image to the window.
     mlx_put_image_to_window(player->mlx, player->win, player->img, 0, 0);
